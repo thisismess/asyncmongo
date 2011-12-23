@@ -42,6 +42,8 @@ class MongoTest(unittest.TestCase):
     mongod_options = [('--port', str(27017))]
     def setUp(self):
         """setup method that starts up mongod instances using `self.mongo_options`"""
+        super(MongoTest, self).setUp()
+
         # So any function that calls IOLoop.instance() gets the
         # PuritanicalIOLoop instead of a default loop.
         if not tornado.ioloop.IOLoop.initialized():

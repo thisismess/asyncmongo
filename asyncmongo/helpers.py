@@ -22,11 +22,7 @@ def _unpack_response(response, cursor_id=None, as_class=dict, tz_aware=False):
     """
     response_flag = struct.unpack("<i", response[:4])[0]
     if response_flag & 1:
-        # Shouldn't get this response if we aren't doing a getMore
-        assert cursor_id is not None
-
-        raise InterfaceError("cursor id '%s' not valid at server" %
-                               cursor_id)
+        raise InterfaceError("cursor not valid at server")
     elif response_flag & 2:
         error_object = bson.BSON(response[20:]).decode()
         if error_object["$err"] == "not master":

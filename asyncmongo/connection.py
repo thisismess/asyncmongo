@@ -165,8 +165,6 @@ class Connection(object):
     def _parse_response(self, response):
         # logging.info('got data %r' % response)
         callback = self.__callback
-        request_id = self.__request_id
-        self.__request_id = None
         self.__callback = None
         if not self.__deferred_message:
             # skip adding to the cache because there is something else 
@@ -175,7 +173,8 @@ class Connection(object):
             self.__pool.cache(self)
         
         try:
-            response = helpers._unpack_response(response, request_id) # TODO: pass tz_awar
+            # TODO: pass tz_aware and as_class
+            response = helpers._unpack_response(response)
         except Exception, e:
             logging.error('error %s' % e)
             callback(None, e)
