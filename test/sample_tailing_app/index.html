@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+    <script type="text/javascript">
+        $(function() {
+            var $form = $('#new_document'),
+                $text_input = $('#text_input'),
+                $new_document_success = $('#new_document_success'),
+                long_poll_xhr;
+
+            $(window).unload(function() {
+                if (long_poll_xhr) {
+                    long_poll_xhr.abort();
+                }
+            });
+
+            $form.submit(function() {
+                var doc_text = $text_input.val();
+                $.ajax({
+                    type: 'POST',
+                    url: '/document',
+                    data: doc_text,
+
+                    success: function(data, textStatus, jqXHR) {
+                        $text_input.val('');
+                        $new_document_success.fadeIn(
+                            // Callback to fade the success indicator out once
+                            // it's completed fading in
+                            function() { $new_document_success.fadeOut(); }
+                        );
+                    },
+
+                    error: function(jqXHR, textStatus, errorThrown) {
+                        $new_document_success.hide();
+
+                        alert("Error saving document: " + jqXHR.responseText);
+                    }
+                });
+
+                return false;
+            });
+            
+            // Generate a random token when this page loads; the server uses
+            // the token to associate this page with a single cursor.
+            var token = Math.random();
+
+            // Long-poll the server for new documents in the capped collection
+            function long_poll() {
+                long_poll_xhr = $.ajax({
+                    type: 'GET',
+                    cache: false,
+                    url: '/capped_coll/' + token,
+
+                    // Receive a list of documents from server like
+                    // { response: [ document, ... ], new: bool }
+                    success: function(data, textStatus, jqXHR) {
+                        if (data) {
+                            var $div = $('#capped_coll'),
+                                buf = '',
+                                response = data.response,
+                                i;
+
+                            if (data.is_new) {
+                                $div.empty();
+                            }
+
+                            if (response) {
+                                // Most recent on top
+                                for (i = response.length - 1; i >= 0; i -= 1) {
+                                    buf += '<p>' + JSON.stringify(response[i]) + '</p>';
+                                }
+
+                                $(buf).hide().prependTo($div).fadeIn();
+                            }
+                        }
+
+                        long_poll();
+                    },
+
+                    error: function(jqXHR, textStatus, errorThrown) {
+                        // Maybe the server's down? Wait before trying again.
+                        setTimeout(long_poll, 5000);
+                    }
+                })
+            }
+
+            $('#clear_collection').click(function() {
+                if (confirm('Really clear the collection?')) {
+                    $.ajax({
+                        type: 'POST',
+                        url: '/clear',
+
+                        success: function() {
+                            $('#capped_coll').empty();
+                        },
+
+                        error: function(jqXHR, textStatus, errorThrown) {
+                            var msg = jqXHR.responseText || textStatus;
+                            if (msg) {
+                                alert("Error clearing capped_coll: " + msg);
+                            }
+                        }
+                    });
+                }
+            });
+
+            // Get initial data
+            long_poll();
+        });
+    </script>
+
+    <title>AsyncMongo Tailable Cursor Example</title>
+</head>
+<body>
+    <form id="new_document">
+        <label for="text_input">Enter a JSON document:</label>
+        <input type="text" id="text_input">
+        <input type="submit">
+        <span id="new_document_success" style="display:none">Success!</span>
+    </form>
+    <button id="clear_collection">Clear collection</button>
+    <hr>
+    <p>Tailing test.capped_coll:</p>
+    <div id="capped_coll"></div>
+</body>
+</html>

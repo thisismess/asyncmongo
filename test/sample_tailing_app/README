@@ -1,0 +1,8 @@
+This Tornado test application demonstrates tailable cursors. It creates a
+capped collection in the 'test' database and displays a web page at
+http://localhost:8888 that streams new documents in the capped collection to the
+page.
+
+Try opening several copies of the page and using the app to add documents to the
+collection, or clear the collection. You can also use the mongo shell to insert
+a document and see it appear in the page.
