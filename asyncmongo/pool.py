@@ -1,5 +1,5 @@
 #!/bin/env python
-# 
+#
 # Copyright 2010 bit.ly
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -15,6 +15,7 @@
 # under the License.
 
 from threading import Condition
+from collections import deque
 import logging
 from errors import TooManyConnections, ProgrammingError
 from connection import Connection
@@ -35,7 +36,7 @@ class ConnectionPools(object):
         if pool_id not in self._pools:
             self._pools[pool_id] = ConnectionPool(*args, **kwargs)
         return self._pools[pool_id]
-    
+
     @classmethod
     def close_idle_connections(self, pool_id=None):
         """close idle connections to mongo"""
@@ -54,7 +55,7 @@ class ConnectionPools(object):
 
 class ConnectionPool(object):
     """Connection Pool to a single mongo instance.
-    
+
     :Parameters:
       - `mincached` (optional): minimum connections to open on instantiation. 0 to open connections on first use
       - `maxcached` (optional): maximum inactive cached connections for this pool. 0 for unlimited
@@ -63,15 +64,15 @@ class ConnectionPool(object):
       - `dbname`: mongo database name
       - `slave_okay` (optional): is it okay to connect directly to and perform queries on a slave instance
       - `**kwargs`: passed to `connection.Connection`
-    
+
     """
-    def __init__(self, 
-                mincached=0, 
-                maxcached=0, 
-                maxconnections=0, 
-                maxusage=0, 
-                dbname=None, 
-                slave_okay=False, 
+    def __init__(self,
+                mincached=0,
+                maxcached=0,
+                maxconnections=0,
+                maxusage=0,
+                dbname=None,
+                slave_okay=False,
                 *args, **kwargs):
         assert isinstance(mincached, int)
         assert isinstance(maxcached, int)
@@ -95,33 +96,41 @@ class ConnectionPool(object):
         self._slave_okay = slave_okay
         self._connections = 0
 
-        
+        self._backlog_queue = deque() # The queue of all the clients waiting for
+            # a connection.
+
         # Establish an initial number of idle database connections:
-        idle = [self.connection() for i in range(mincached)]
-        while idle:
-            self.cache(idle.pop())
-    
+        idle = [self.new_connection() for i in range(mincached)]
+        while idle: self.cache(idle.pop())
+
     def new_connection(self):
         kwargs = self._kwargs
         kwargs['pool'] = self
         return Connection(*self._args, **kwargs)
-    
-    def connection(self):
+
+    def connection(self, callback, from_backlog=False):
         """ get a cached connection from the pool """
-        
+
+        con = None
         self._condition.acquire()
         try:
             if (self._maxconnections and self._connections >= self._maxconnections):
-                raise TooManyConnections("%d connections are already equal to the max: %d" % (self._connections, self._maxconnections))
-            # connection limit not reached, get a dedicated connection
-            try: # first try to get it from the idle cache
-                con = self._idle_cache.pop(0)
-            except IndexError: # else get a fresh connection
-                con = self.new_connection()
-            self._connections += 1
+                if from_backlog: # We requeue the request on top of the backlog if it came from there.
+                    self._backlog_queue.appendleft(callback)
+                else: # Otherwise, we just queue it.
+                    self._backlog_queue.append(callback)
+            else:
+                # connection limit not reached, get a dedicated connection
+                try: # first try to get it from the idle cache
+                    con = self._idle_cache.pop(0)
+                except IndexError: # else get a fresh connection
+                    con = self.new_connection()
+                self._connections += 1
         finally:
             self._condition.release()
-        return con
+
+        # If we acquired a connection object, we can call the callback that was supplied.
+        if con: callback(con)
 
     def cache(self, con):
         """Put a dedicated connection back into the idle cache."""
@@ -146,7 +155,12 @@ class ConnectionPool(object):
         finally:
             self._connections -= 1
             self._condition.release()
-    
+
+        if self._backlog_queue:
+            # Try to see if we can use a connection if the backlog is not empty.
+            self.connection(self._backlog_queue.popleft(), from_backlog=True)
+
+
     def close(self):
         """Close all connections in the pool."""
         self._condition.acquire()
@@ -161,5 +175,5 @@ class ConnectionPool(object):
             self._condition.notifyAll()
         finally:
             self._condition.release()
-    
+
 

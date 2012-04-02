@@ -1,5 +1,5 @@
 #!/bin/env python
-# 
+#
 # Copyright 2010 bit.ly
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -36,16 +36,16 @@ class Cursor(object):
         assert isinstance(dbname, (str, unicode))
         assert isinstance(collection, (str, unicode))
         assert isinstance(pool, object)
-        
+
         self.__dbname = dbname
         self.__collection = collection
         self.__pool = pool
         self.__slave_okay = False
-    
+
     @property
     def full_collection_name(self):
         return u'%s.%s' % (self.__dbname, self.__collection)
-    
+
     def drop(self, *args, **kwargs):
         raise NotImplemented("patches accepted")
 
@@ -56,7 +56,7 @@ class Cursor(object):
     def insert(self, doc_or_docs,
                manipulate=True, safe=True, check_keys=True, callback=None, **kwargs):
         """Insert a document(s) into this collection.
-        
+
         If `manipulate` is set, the document(s) are manipulated using
         any :class:`~pymongo.son_manipulator.SONManipulator` instances
         that have been added to this
@@ -64,17 +64,17 @@ class Cursor(object):
         the inserted document or a list of ``"_id"`` values of the
         inserted documents.  If the document(s) does not already
         contain an ``"_id"`` one will be added.
-        
+
         If `safe` is ``True`` then the insert will be checked for
         errors, raising :class:`~pymongo.errors.OperationFailure` if
         one occurred. Safe inserts wait for a response from the
         database, while normal inserts do not.
-        
+
         Any additional keyword arguments imply ``safe=True``, and
         will be used as options for the resultant `getLastError`
         command. For example, to wait for replication to 3 nodes, pass
         ``w=3``.
-        
+
         :Parameters:
           - `doc_or_docs`: a document or list of documents to be
             inserted
@@ -87,77 +87,79 @@ class Cursor(object):
           - `**kwargs` (optional): any additional arguments imply
             ``safe=True``, and will be used as options for the
             `getLastError` command
-        
+
         .. mongodoc:: insert
         """
         if not isinstance(safe, bool):
             raise TypeError("safe must be an instance of bool")
-        
+
         docs = doc_or_docs
         # return_one = False
         if isinstance(docs, dict):
             # return_one = True
             docs = [docs]
-        
+
         # if manipulate:
         #     docs = [self.__database._fix_incoming(doc, self) for doc in docs]
-        
+
         self.__limit = None
         if kwargs:
             safe = True
-        
+
         if safe and not callable(callback):
             raise TypeError("callback must be callable")
         if not safe and callback is not None:
             raise TypeError("callback can not be used with safe=False")
-        
+
         if callback:
             callback = functools.partial(self._handle_response, orig_callback=callback)
 
-        connection = self.__pool.connection()
-        try:
-            connection.send_message(
-                message.insert(self.full_collection_name, docs,
-                    check_keys, safe, kwargs), callback=callback)
-        except:
-            connection.close()
-            raise
-    
+        def _handle_connection(connection):
+            try:
+                connection.send_message(
+                    message.insert(self.full_collection_name, docs,
+                        check_keys, safe, kwargs), callback=callback)
+            except:
+                connection.close()
+                raise
+        self.__pool.connection(_handle_connection)
+
     def remove(self, spec_or_id=None, safe=True, callback=None, **kwargs):
         if not isinstance(safe, bool):
             raise TypeError("safe must be an instance of bool")
-        
+
         if spec_or_id is None:
             spec_or_id = {}
         if not isinstance(spec_or_id, dict):
             spec_or_id = {"_id": spec_or_id}
-        
+
         self.__limit = None
         if kwargs:
             safe = True
-        
+
         if safe and not callable(callback):
             raise TypeError("callback must be callable")
         if not safe and callback is not None:
             raise TypeError("callback can not be used with safe=False")
-        
+
         if callback:
             callback = functools.partial(self._handle_response, orig_callback=callback)
 
-        connection = self.__pool.connection()
-        try:
-            connection.send_message(
-                message.delete(self.full_collection_name, spec_or_id, safe, kwargs),
-                    callback=callback)
-        except:
-            connection.close()
-            raise
+        def _handle_connection(connection):
+            try:
+                connection.send_message(
+                    message.delete(self.full_collection_name, spec_or_id, safe, kwargs),
+                        callback=callback)
+            except:
+                connection.close()
+                raise
+        self.__pool.connection(_handle_connection)
 
-    
+
     def update(self, spec, document, upsert=False, manipulate=False,
                safe=True, multi=False, callback=None, **kwargs):
         """Update a document(s) in this collection.
-        
+
         Raises :class:`TypeError` if either `spec` or `document` is
         not an instance of ``dict`` or `upsert` is not an instance of
         ``bool``. If `safe` is ``True`` then the update will be
@@ -166,14 +168,14 @@ class Cursor(object):
         occurred. Safe updates require a response from the database,
         while normal updates do not - thus, setting `safe` to ``True``
         will negatively impact performance.
-        
+
         There are many useful `update modifiers`_ which can be used
         when performing updates. For example, here we use the
         ``"$set"`` modifier to modify some fields in a matching
         document:
-        
+
         .. doctest::
-          
+
           >>> db.test.insert({"x": "y", "a": "b"})
           ObjectId('...')
           >>> list(db.test.find())
@@ -181,15 +183,15 @@ class Cursor(object):
           >>> db.test.update({"x": "y"}, {"$set": {"a": "c"}})
           >>> list(db.test.find())
           [{u'a': u'c', u'x': u'y', u'_id': ObjectId('...')}]
-        
+
         If `safe` is ``True`` returns the response to the *lastError*
         command. Otherwise, returns ``None``.
-        
+
         # Any additional keyword arguments imply ``safe=True``, and will
         # be used as options for the resultant `getLastError`
         # command. For example, to wait for replication to 3 nodes, pass
         # ``w=3``.
-        
+
         :Parameters:
           - `spec`: a ``dict`` or :class:`~bson.son.SON` instance
             specifying elements which must be present for a document
@@ -214,9 +216,9 @@ class Cursor(object):
           - `**kwargs` (optional): any additional arguments imply
             ``safe=True``, and will be used as options for the
             `getLastError` command
-        
+
         .. _update modifiers: http://www.mongodb.org/display/DOCS/Updating
-        
+
         .. mongodoc:: update
         """
         if not isinstance(spec, dict):
@@ -230,32 +232,33 @@ class Cursor(object):
         # TODO: apply SON manipulators
         # if upsert and manipulate:
         #     document = self.__database._fix_incoming(document, self)
-        
+
         if kwargs:
             safe = True
-        
+
         if safe and not callable(callback):
             raise TypeError("callback must be callable")
         if not safe and callback is not None:
             raise TypeError("callback can not be used with safe=False")
-        
+
         if callback:
             callback = functools.partial(self._handle_response, orig_callback=callback)
 
         self.__limit = None
-        connection = self.__pool.connection()
-        try:
-            connection.send_message(
-                message.update(self.full_collection_name, upsert, multi,
-                    spec, document, safe, kwargs), callback=callback)
-        except:
-            connection.close()
-            raise
+        def _handle_connection(connection):
+            try:
+                connection.send_message(
+                    message.update(self.full_collection_name, upsert, multi,
+                        spec, document, safe, kwargs), callback=callback)
+            except:
+                connection.close()
+                raise
+        self.__pool.connection(_handle_connection)
 
-    
+
     def find_one(self, spec_or_id, **kwargs):
         """Get a single document from the database.
-        
+
         All arguments to :meth:`find` are also valid arguments for
         :meth:`find_one`, although any `limit` argument will be
         ignored. Returns a single document, or ``None`` if no matching
@@ -265,29 +268,29 @@ class Cursor(object):
             spec_or_id = {"_id": spec_or_id}
         kwargs['limit'] = -1
         self.find(spec_or_id, **kwargs)
-    
+
     def find(self, spec=None, fields=None, skip=0, limit=0,
                  timeout=True, snapshot=False, tailable=False, sort=None,
                  max_scan=None, slave_okay=False,
                  _must_use_master=False, _is_command=False, hint=None, debug=False,
                  callback=None):
         """Query the database.
-        
+
         The `spec` argument is a prototype document that all results
         must match. For example:
-        
+
         >>> db.test.find({"hello": "world"}, callback=...)
-        
+
         only matches documents that have a key "hello" with value
         "world".  Matches can have other keys *in addition* to
         "hello". The `fields` argument is used to specify a subset of
         fields that should be included in the result documents. By
         limiting results to a certain subset of fields you can cut
         down on network traffic and decoding time.
-        
+
         Raises :class:`TypeError` if any of the arguments are of
         improper type.
-        
+
         :Parameters:
           - `spec` (optional): a SON object specifying elements which
             must be present for a document to be included in the
@@ -325,13 +328,13 @@ class Cursor(object):
             examined when performing the query
           - `slave_okay` (optional): is it okay to connect directly
             to and perform queries on a slave instance
-        
+
         .. mongodoc:: find
         """
-        
+
         if spec is None:
             spec = {}
-        
+
         if not isinstance(spec, dict):
             raise TypeError("spec must be an instance of dict")
         if not isinstance(skip, int):
@@ -346,19 +349,19 @@ class Cursor(object):
             raise TypeError("tailable must be an instance of bool")
         if not callable(callback):
             raise TypeError("callback must be callable")
-        
+
         if fields is not None:
             if not fields:
                 fields = {"_id": 1}
             if not isinstance(fields, dict):
                 fields = helpers._fields_list_to_dict(fields)
-        
+
         self.__spec = spec
         self.__fields = fields
         self.__skip = skip
         self.__limit = limit
         self.__batch_size = 0
-        
+
         self.__timeout = timeout
         self.__tailable = tailable
         self.__snapshot = snapshot
@@ -372,48 +375,56 @@ class Cursor(object):
         self.__tz_aware = False #collection.database.connection.tz_aware
         self.__must_use_master = _must_use_master
         self.__is_command = _is_command
-        
-        connection = self.__pool.connection()
-        try:
-            if self.__debug:
-                logging.debug('QUERY_SPEC: %r' % self.__query_spec())
 
-            connection.send_message(
-                message.query(self.__query_options(),
-                              self.full_collection_name,
-                              self.__skip, 
-                              self.__limit,
-                              self.__query_spec(),
-                              self.__fields), 
-                callback=functools.partial(self._handle_response, orig_callback=callback))
-        except Exception, e:
-            logging.error('Error sending query %s' % e)
-            connection.close()
-            raise
-    
+        def _handle_connection(connection):
+            try:
+                if self.__debug:
+                    logging.debug('QUERY_SPEC: %r' % self.__query_spec())
+
+                connection.send_message(
+                    message.query(self.__query_options(),
+                                  self.full_collection_name,
+                                  self.__skip,
+                                  self.__limit,
+                                  self.__query_spec(),
+                                  self.__fields),
+                    callback=functools.partial(self._handle_response, orig_callback=callback))
+            except Exception, e:
+                logging.error('Error sending query %s' % e)
+                connection.close()
+                raise
+        self.__pool.connection(_handle_connection)
+
     def _handle_response(self, result, error=None, orig_callback=None):
-        if result and result.get('cursor_id'):
-            connection = self.__pool.connection()
+        def _handle_finish(_res=None, _err=None):
+            if error:
+                logging.error('%s %s' % (self.full_collection_name , error))
+                orig_callback(None, error=error)
+            else:
+                if self.__limit == -1 and len(result['data']) == 1:
+                    # handle the find_one() call
+                    orig_callback(result['data'][0], error=None)
+                else:
+                    orig_callback(result['data'], error=None)
+
+        def _close_cursor(connection):
             try:
                 connection.send_message(
                     message.kill_cursors([result['cursor_id']]),
                     callback=None)
+                _handle_finish()
             except Exception, e:
                 logging.error('Error killing cursor %s: %s' % (result['cursor_id'], e))
                 connection.close()
                 raise
-        
-        if error:
-            logging.error('%s %s' % (self.full_collection_name , error))
-            orig_callback(None, error=error)
-        else:
-            if self.__limit == -1 and len(result['data']) == 1:
-                # handle the find_one() call
-                orig_callback(result['data'][0], error=None)
-            else:
-                orig_callback(result['data'], error=None)
 
-    
+        if result and result.get('cursor_id'):
+            self.__pool.connection(_close_cursor)
+        else:
+            _handle_finish()
+
+
+
     def __query_options(self):
         """Get the query options string to use for this query."""
         options = 0
@@ -424,7 +435,7 @@ class Cursor(object):
         if not self.__timeout:
             options |= _QUERY_OPTIONS["no_timeout"]
         return options
-    
+
     def __query_spec(self):
         """Get the spec to use for a query."""
         spec = self.__spec
@@ -441,5 +452,5 @@ class Cursor(object):
         if self.__max_scan:
             spec["$maxScan"] = self.__max_scan
         return spec
-    
-    
+
+
