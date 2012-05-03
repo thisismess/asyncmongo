@@ -273,7 +273,7 @@ class Cursor(object):
         if spec_or_id is not None and not isinstance(spec_or_id, dict):
             spec_or_id = {"_id": spec_or_id}
         kwargs['limit'] = -1
-        self.find(spec_or_id, **kwargs)
+        return self.find(spec_or_id, **kwargs)
 
     def find(self, spec=None, fields=None, skip=0, limit=0,
                  timeout=True, snapshot=False, tailable=False, sort=None,
@@ -407,8 +407,8 @@ class Cursor(object):
         self.__max_scan = max_scan
         self.__slave_okay = slave_okay
         self.__explain = False
-        self.__hint = hint
-        self.__debug = debug
+        self.__hint = None
+        # self.__debug = debug
         # self.__as_class = as_class
         self.__tz_aware = False #collection.database.connection.tz_aware
         self.__must_use_master = _must_use_master
@@ -491,8 +491,11 @@ class Cursor(object):
             logging.error('%s %s' % (self.full_collection_name , error))
             orig_callback(None, error=error)
         else:
-            _handle_finish()
-
+            if self.__limit == -1 and len(result['data']) == 1:
+                # handle the find_one() call
+                orig_callback(result['data'][0], error=None)
+            else:
+                orig_callback(result['data'], error=None)
 
 
     def __query_options(self):
