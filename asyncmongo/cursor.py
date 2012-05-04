@@ -367,6 +367,9 @@ class Cursor(object):
         .. mongodoc:: find
         """
 
+        if self.__id and self.alive:
+            logging.warn("Do not call find() twice on the same collection object")
+
         if spec is None:
             spec = {}
 
@@ -475,9 +478,12 @@ class Cursor(object):
 
     def _handle_response(self, result, error=None, orig_callback=None):
         if result:
+            # print '---- ' + str(result.get('cursor_id')) + '  ' + str(self.__id)
             self.__retrieved += result.get('number_returned', 0)
             if self.__id and result.get('cursor_id'):
-                assert self.__id == result.get('cursor_id')
+                # assert self.__id == result.get('cursor_id')
+                if self.__id != result.get('cursor_id'):
+                    logging.warn('cursor_id different from current self.__id, do not call repeatedly find() on the same collection object')
             else:
                 self.__id = result.get('cursor_id')
 
@@ -550,6 +556,7 @@ class Cursor(object):
                     connection.send_message(
                         message.kill_cursors([self.__id]),
                         callback=None)
+                    self.__id = None
                 except Exception, e:
                     logging.error('Error killing cursor %s: %s' % (self.__id, e))
                     connection.close()
